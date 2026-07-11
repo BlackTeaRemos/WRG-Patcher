@@ -38,7 +38,10 @@ if not exist "%HERE%\version.dll" (
 
 if /i not "%HERE%"=="%GAME%" copy /Y "%HERE%\version.dll" "%GAME%\version.dll" >nul
 
-copy /Y "%WINDIR%\System32\version.dll" "%GAME%\version_real.dll" >nul
+set "SYSVER=%WINDIR%\System32\version.dll"
+if exist "%WINDIR%\SysWOW64\version.dll" set "SYSVER=%WINDIR%\SysWOW64\version.dll"
+
+copy /Y "%SYSVER%" "%GAME%\version_real.dll" >nul
 if errorlevel 1 (
     echo Failed to copy system version.dll
     pause
