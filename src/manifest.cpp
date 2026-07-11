@@ -42,6 +42,7 @@ static void flush_block(const Block *block, const wchar_t *moddir) {
         wp::normalize_separators(wfile);
         wchar_t absPath[MAX_PATH];
         _snwprintf(absPath, MAX_PATH, L"%ls\\%ls", moddir, wfile);
+        absPath[MAX_PATH-1] = 0;   // _snwprintf omits terminator on truncation
         char absPathUtf8[MAX_PATH*2];
         WideCharToMultiByte(CP_UTF8, 0, absPath, -1, absPathUtf8, sizeof(absPathUtf8), NULL, NULL);
         wrg_redirect_add(block->tail, absPathUtf8);
@@ -58,6 +59,7 @@ static void flush_block(const Block *block, const wchar_t *moddir) {
         wp::normalize_separators(wfile);
         wchar_t absPath[MAX_PATH];
         _snwprintf(absPath, MAX_PATH, L"%ls\\%ls", moddir, wfile);
+        absPath[MAX_PATH-1] = 0;   // _snwprintf omits terminator on truncation
         char *data = NULL;
         long dataLen = 0;
         FILE *file = _wfopen(absPath, L"rb");
