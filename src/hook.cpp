@@ -117,6 +117,7 @@ int wrg_hook_all(const char *func, void *repl) {
 }
 
 void wrg_rehook_known(void) {
+    wp::CritLock lock(g_lock);   // serialize concurrent IAT-page toggles
     for (int index = 0; index < g_nhooks; index++) {
         hook_every_module(g_hooks[index].func, g_hooks[index].repl);
     }
