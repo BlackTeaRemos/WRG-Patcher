@@ -80,7 +80,11 @@ int wrg_redirect_resolve(const wchar_t *name, wchar_t *out) {
         for (int depth = maxDepth; depth >= 1; --depth) {
             const wchar_t *tail = starts[segmentCount - depth];
             wchar_t candidatePath[MAX_PATH];
-            _snwprintf(candidatePath, MAX_PATH, L"%ls\\%ls\\%ls", g_modsroot, g_mods[modIndex], tail);
+            int written = _snwprintf(candidatePath, MAX_PATH, L"%ls\\%ls\\%ls", g_modsroot, g_mods[modIndex], tail);
+            if (written < 0 || written >= MAX_PATH) {
+                continue;   // truncated: unterminated buffer, never a real file
+            }
+            candidatePath[MAX_PATH-1] = 0;
             wp::normalize_separators(candidatePath);
             if (GetFileAttributesW(candidatePath) != INVALID_FILE_ATTRIBUTES) {
                 wp::copy_truncated(out, candidatePath, MAX_PATH);
