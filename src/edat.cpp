@@ -41,10 +41,15 @@ static size_t cstr_aligned2(const BYTE *dict, size_t dlen, size_t pos,
     return pos + paddedLen;
 }
 
+#define ED_MAX_DEPTH 64
+
 // Recursive walk. prefix is the accumulated path so far
 static void walk(const BYTE *dict, size_t dlen, size_t pos, size_t end,
                  const char *prefix, const char *target,
-                 unsigned int *foundOffset, int *matched) {
+                 unsigned int *foundOffset, int *matched, int depth) {
+    if (depth > ED_MAX_DEPTH) {
+        return;   // cap untrusted nesting
+    }
     while (pos < end && !*matched) {
         size_t entryStart = pos;
         if (pos + 8 > dlen) {
@@ -54,6 +59,9 @@ static void walk(const BYTE *dict, size_t dlen, size_t pos, size_t end,
         unsigned int entrySize = rd_u32(dict, pos + 4);
         pos += 8;
         size_t next = entrySize ? entryStart + entrySize : end;
+        if (entrySize != 0 && (next <= entryStart || next < pos || next > end)) {
+            return;   // reject wrap/backward (untrusted entrySize)
+        }
 
         if (pathSize != 0) {
             char name[256];
@@ -64,7 +72,7 @@ static void walk(const BYTE *dict, size_t dlen, size_t pos, size_t end,
             char child[1024];
             _snprintf(child, sizeof(child), "%s%s", prefix, name);
             child[sizeof(child)-1] = 0;
-            walk(dict, dlen, after, next, child, target, foundOffset, matched);
+            walk(dict, dlen, after, next, child, target, foundOffset, matched, depth + 1);
         } else {
             if (pos + 32 > dlen) {
                 return;
@@ -128,7 +136,7 @@ int wrg_edat_resolve(const wchar_t *packpath, const char *inner,
                 if (unk0 == 0x0A) {
                     unsigned int relativeOffset = 0;
                     int found = 0;
-                    walk(dict, sizeFiles, 10, sizeFiles, "", target, &relativeOffset, &found);
+                    walk(dict, sizeFiles, 10, sizeFiles, "", target, &relativeOffset, &found, 0);
                     if (found) {
                         *off = (unsigned long long)offData + relativeOffset;
                         resolved = 1;
