@@ -1,0 +1,10 @@
+LIBRARY version
+EXPORTS
+    GetFileVersionInfoSizeA = version_real.GetFileVersionInfoSizeA
+    GetFileVersionInfoA     = version_real.GetFileVersionInfoA
+    VerQueryValueA          = version_real.VerQueryValueA
+    GetFileVersionInfoSizeW = version_real.GetFileVersionInfoSizeW
+    GetFileVersionInfoW     = version_real.GetFileVersionInfoW
+    VerQueryValueW          = version_real.VerQueryValueW
+    GetFileVersionInfoExW   = version_real.GetFileVersionInfoExW
+    GetFileVersionInfoSizeExW = version_real.GetFileVersionInfoSizeExW

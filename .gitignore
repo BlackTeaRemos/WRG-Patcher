@@ -1,0 +1,19 @@
+# build artifacts + intermediates
+*.dll
+*.obj
+*.exp
+*.lib
+*.ilk
+*.pdb
+*.log
+.vs/
+_baseline_build.bat
+_cpp_build.bat
+_dump.bat
+_dump2.bat
+version_baseline.*
+
+/deprecated/
+
+/src/native/
+/src/patches/
