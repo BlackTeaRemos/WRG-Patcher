@@ -1,25 +1,24 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-set "GAME=%~1"
+set "HERE=%~dp0"
+if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+
+set "GAME="
+if not "%~1"=="" call :setgame "%~1"
+
+if not defined GAME if exist "%HERE%\WarGame3.exe" set "GAME=%HERE%"
 
 if not defined GAME (
-    if exist "%~dp0WarGame3.exe" set "GAME=%~dp0"
+    for /f "tokens=2,*" %%A in ('reg query "HKCU\Software\Valve\Steam" /v SteamPath 2^>nul ^| find "SteamPath"') do call :steamgame "%%B"
 )
 
 if not defined GAME (
-    for /f "tokens=2,*" %%A in ('reg query "HKCU\Software\Valve\Steam" /v SteamPath 2^>nul ^| find "SteamPath"') do set "STEAM=%%B"
-    if defined STEAM (
-        set "STEAM=!STEAM:/=\!"
-        if exist "!STEAM!\steamapps\common\Wargame Red Dragon\WarGame3.exe" set "GAME=!STEAM!\steamapps\common\Wargame Red Dragon"
-    )
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\WOW6432Node\Valve\Steam" /v InstallPath 2^>nul ^| find "InstallPath"') do call :steamgame "%%B"
 )
 
 if not defined GAME (
-    for %%D in ("HKLM\SOFTWARE\WOW6432Node\Valve\Steam" "HKLM\SOFTWARE\Valve\Steam") do (
-        for /f "tokens=2,*" %%A in ('reg query %%D /v InstallPath 2^>nul ^| find "InstallPath"') do set "STEAM=%%B"
-        if defined STEAM if exist "!STEAM!\steamapps\common\Wargame Red Dragon\WarGame3.exe" set "GAME=!STEAM!\steamapps\common\Wargame Red Dragon"
-    )
+    for /f "tokens=2,*" %%A in ('reg query "HKLM\SOFTWARE\Valve\Steam" /v InstallPath 2^>nul ^| find "InstallPath"') do call :steamgame "%%B"
 )
 
 if not defined GAME (
@@ -29,25 +28,15 @@ if not defined GAME (
     exit /b 1
 )
 
-if "%GAME:~-1%"=="\" set "GAME=%GAME:~0,-1%"
-
-if not exist "%GAME%\WarGame3.exe" (
-    echo WarGame3.exe not found in: %GAME%
-    pause
-    exit /b 1
-)
-
 echo Game folder: %GAME%
 
-if not exist "%~dp0version.dll" (
+if not exist "%HERE%\version.dll" (
     echo version.dll must sit next to this script.
     pause
     exit /b 1
 )
 
-if /i not "%~dp0"=="%GAME%\" (
-    copy /Y "%~dp0version.dll" "%GAME%\version.dll" >nul
-)
+if /i not "%HERE%"=="%GAME%" copy /Y "%HERE%\version.dll" "%GAME%\version.dll" >nul
 
 copy /Y "%WINDIR%\System32\version.dll" "%GAME%\version_real.dll" >nul
 if errorlevel 1 (
@@ -61,3 +50,16 @@ if not exist "%GAME%\mods" mkdir "%GAME%\mods"
 echo Installed version.dll, version_real.dll, and mods\ folder.
 echo Launch the game normally.
 pause
+exit /b 0
+
+:setgame
+set "CAND=%~1"
+if "%CAND:~-1%"=="\" set "CAND=%CAND:~0,-1%"
+if exist "%CAND%\WarGame3.exe" set "GAME=%CAND%"
+exit /b 0
+
+:steamgame
+set "STEAM=%~1"
+set "STEAM=%STEAM:/=\%"
+if exist "%STEAM%\steamapps\common\Wargame Red Dragon\WarGame3.exe" set "GAME=%STEAM%\steamapps\common\Wargame Red Dragon"
+exit /b 0
