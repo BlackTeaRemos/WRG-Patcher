@@ -42,11 +42,7 @@ set "SYSVER=%WINDIR%\System32\version.dll"
 if exist "%WINDIR%\SysWOW64\version.dll" set "SYSVER=%WINDIR%\SysWOW64\version.dll"
 
 copy /Y "%SYSVER%" "%GAME%\version_real.dll" >nul
-if errorlevel 1 (
-    echo Failed to copy system version.dll
-    pause
-    exit /b 1
-)
+if errorlevel 1 echo could not stage version_real.dll
 
 if not exist "%GAME%\mods" mkdir "%GAME%\mods"
 

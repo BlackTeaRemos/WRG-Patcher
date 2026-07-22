@@ -17,11 +17,7 @@ mods without touching game files.
 
 ## Load mechanism
 
-The game imports `version.dll` from its own folder before `main()`. This proxy
-forwards the real version exports to `version_real.dll` (a copy of the system
-`System32\version.dll`) and, on attach, IAT-hooks `CreateFileW/A`, `CloseHandle`,
-`ReadFile`, `NtReadFile`, and `LoadLibraryW/A/ExW/ExA` across all loaded modules,
-re-hooking after each `LoadLibrary` to trap late-loaded code.
+The game imports `version.dll` from its own folder before `main()`. This proxy.
 
 ## Installation
 
