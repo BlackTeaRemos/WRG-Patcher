@@ -199,6 +199,7 @@ static void init(void) {
     realReadFile    = reinterpret_cast<ReadFile_t>(GetProcAddress(kernel32, "ReadFile"));
 
     wrg_version_init();
+    wrg_version_anchor_init();
 
     wrg_overlay_load_from_mods();   // legacy .ovl
     wrg_manifest_load_all();        // declarative manifests

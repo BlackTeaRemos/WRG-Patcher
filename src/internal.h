@@ -81,6 +81,8 @@ void        wrg_version_init(void);            // hash WarGame3.exe
 const char *wrg_version_tag(void);             // stable id string
 int         wrg_version_matches(const char *required);  // manifest gate
 
+void        wrg_version_anchor_init(void);     // lift engine build-number ceiling (opt-in)
+
 void wrg_ipc_start(void);   // spawn named-pipe control thread
 
 #ifdef __cplusplus
