@@ -209,6 +209,7 @@ static void init(void) {
     int closeHandleHookCount = wrg_hook_all("CloseHandle", reinterpret_cast<void*>(myCloseHandle));
     wrg_install_loadlib_rehook();
     wrg_install_read_hooks();        // no-op unless patches exist
+    wrg_install_mapdir_hooks();      // mod map packs without game-tree writes
 
 #ifndef WRG_RELEASE
     wrg_plugins_load_all();          // code-mod DLL loading; disabled in release

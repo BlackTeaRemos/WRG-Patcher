@@ -85,6 +85,9 @@ void        wrg_version_anchor_init(void);     // lift engine build-number ceili
 
 void wrg_ipc_start(void);   // spawn named-pipe control thread
 
+// mod-provided map packs: attribute probes + Maps dir enumeration injection
+void wrg_install_mapdir_hooks(void);
+
 #ifdef __cplusplus
 }
 #endif

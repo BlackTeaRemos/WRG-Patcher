@@ -7,7 +7,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#if defined(__cpp_lib_expected) || __has_include(<expected>)
 #include <expected>
+#endif
 #include <span>
 #include <string_view>
 #include <utility>
@@ -22,8 +24,10 @@ enum class Error {
     NotFound,
 };
 
+#ifdef __cpp_lib_expected
 template <class T>
 using Result = std::expected<T, Error>;
+#endif
 
 // restores original page protection on scope exit
 class VProtectGuard {
