@@ -391,8 +391,13 @@ static DWORD WINAPI myGFAW(LPCWSTR name) {
     if (attributes == INVALID_FILE_ATTRIBUTES && wrg_path_wants(name)) {
         wchar_t resolved[MAX_PATH];
         if (wrg_redirect_resolve(name, resolved)) {
-            return realGFAW(resolved);
+            DWORD viaMod = realGFAW(resolved);
+            if (viaMod != INVALID_FILE_ATTRIBUTES) {
+                wrg_log(L"ATTR-SERVE", name, resolved);
+            }
+            return viaMod;
         }
+        wrg_log_miss(name);
     }
     return attributes;
 }

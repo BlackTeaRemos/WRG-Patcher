@@ -16,8 +16,11 @@ extern "C" {
 #define WRG_MAX_TRACK   128
 #define WRG_MAX_REDIR   256
 #define WRG_MAX_PLUGINS 64
+#define WRG_MAX_MISS_LOG 400
 
 void wrg_log(const wchar_t *tag, const wchar_t *subjectPath, const wchar_t *targetPath);
+// log a failed OPEN_EXISTING open, bounded; names what the engine could not find
+void wrg_log_miss(const wchar_t *name);
 
 extern wchar_t g_modsroot[MAX_PATH];   // <gamedir>\mods
 extern wchar_t g_gamedir[MAX_PATH];

@@ -115,6 +115,22 @@ static void create_load_order_with_first_mod(void) {
 
 static volatile LONG g_game_loaded = 0;
 
+// Failed opens, bounded so a probing loader cannot flood the log. The engine
+// aborts with "corrupt installation" when a file it expects is absent, and the
+// last MISS before that abort names it.
+static volatile LONG g_miss_logged = 0;
+
+void wrg_log_miss(const wchar_t *name) {
+    if (InterlockedIncrement(&g_miss_logged) > WRG_MAX_MISS_LOG) {
+        return;
+    }
+    DWORD error = GetLastError();
+    if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) {
+        return;
+    }
+    wrg_log(L"MISS", name, NULL);
+}
+
 static HANDLE WINAPI myCFW(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES secAttrs,
                            DWORD creationDisposition, DWORD flagsAndAttributes, HANDLE templateFile) {
     if (wrg_path_wants(name)) {
@@ -138,7 +154,11 @@ static HANDLE WINAPI myCFW(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_A
             return realCFW(redirectPath, access, share, secAttrs, creationDisposition, flagsAndAttributes, templateFile);
         }
     }
-    return realCFW(name, access, share, secAttrs, creationDisposition, flagsAndAttributes, templateFile);
+    HANDLE handle = realCFW(name, access, share, secAttrs, creationDisposition, flagsAndAttributes, templateFile);
+    if (handle == INVALID_HANDLE_VALUE && creationDisposition == OPEN_EXISTING) {
+        wrg_log_miss(name);
+    }
+    return handle;
 }
 
 static HANDLE WINAPI myCFA(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES secAttrs,
@@ -164,7 +184,14 @@ static HANDLE WINAPI myCFA(LPCSTR name, DWORD access, DWORD share, LPSECURITY_AT
             }
         }
     }
-    return realCFA(name, access, share, secAttrs, creationDisposition, flagsAndAttributes, templateFile);
+    HANDLE handle = realCFA(name, access, share, secAttrs, creationDisposition, flagsAndAttributes, templateFile);
+    if (handle == INVALID_HANDLE_VALUE && creationDisposition == OPEN_EXISTING && name) {
+        wchar_t wideName[MAX_PATH];
+        if (MultiByteToWideChar(CP_ACP, 0, name, -1, wideName, MAX_PATH)) {
+            wrg_log_miss(wideName);
+        }
+    }
+    return handle;
 }
 
 static BOOL WINAPI myCloseHandle(HANDLE handle) {
