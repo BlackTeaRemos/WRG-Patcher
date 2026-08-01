@@ -19,6 +19,7 @@
 typedef struct {
     HANDLE  real;                              // INVALID_HANDLE_VALUE once drained
     int     realDrained;
+    int     ansi;                              // WRG_FIND_ANSI when opened via the A surface
     int     next;                              // cursor into names
     int     count;
     wchar_t names[WRG_MAX_INJECT][MAX_PATH];   // injected file names (no dir)
@@ -29,18 +30,42 @@ typedef struct {
 static MapFind *g_finds[WRG_MAX_MAPDIR_FINDS];
 
 typedef DWORD  (WINAPI *GetFileAttributesW_t)(LPCWSTR);
+typedef DWORD  (WINAPI *GetFileAttributesA_t)(LPCSTR);
 typedef BOOL   (WINAPI *GetFileAttributesExW_t)(LPCWSTR, GET_FILEEX_INFO_LEVELS, LPVOID);
+typedef BOOL   (WINAPI *GetFileAttributesExA_t)(LPCSTR, GET_FILEEX_INFO_LEVELS, LPVOID);
 typedef HANDLE (WINAPI *FindFirstFileW_t)(LPCWSTR, LPWIN32_FIND_DATAW);
+typedef HANDLE (WINAPI *FindFirstFileA_t)(LPCSTR, LPWIN32_FIND_DATAA);
 typedef HANDLE (WINAPI *FindFirstFileExW_t)(LPCWSTR, FINDEX_INFO_LEVELS, LPVOID, FINDEX_SEARCH_OPS, LPVOID, DWORD);
+typedef HANDLE (WINAPI *FindFirstFileExA_t)(LPCSTR, FINDEX_INFO_LEVELS, LPVOID, FINDEX_SEARCH_OPS, LPVOID, DWORD);
 typedef BOOL   (WINAPI *FindNextFileW_t)(HANDLE, LPWIN32_FIND_DATAW);
+typedef BOOL   (WINAPI *FindNextFileA_t)(HANDLE, LPWIN32_FIND_DATAA);
 typedef BOOL   (WINAPI *FindClose_t)(HANDLE);
 
 static GetFileAttributesW_t   realGFAW;
+static GetFileAttributesA_t   realGFAA;
 static GetFileAttributesExW_t realGFAEW;
+static GetFileAttributesExA_t realGFAEA;
 static FindFirstFileW_t       realFFFW;
+static FindFirstFileA_t       realFFFA;
 static FindFirstFileExW_t     realFFFEW;
+static FindFirstFileExA_t     realFFFEA;
 static FindNextFileW_t        realFNFW;
+static FindNextFileA_t        realFNFA;
 static FindClose_t            realFC;
+
+// A find handle opened through the ANSI surface serves ANSI records.
+#define WRG_FIND_ANSI 1
+
+static void find_data_narrow(const WIN32_FIND_DATAW *wide, LPWIN32_FIND_DATAA narrow) {
+    memset(narrow, 0, sizeof(*narrow));
+    narrow->dwFileAttributes = wide->dwFileAttributes;
+    narrow->ftCreationTime = wide->ftCreationTime;
+    narrow->ftLastAccessTime = wide->ftLastAccessTime;
+    narrow->ftLastWriteTime = wide->ftLastWriteTime;
+    narrow->nFileSizeHigh = wide->nFileSizeHigh;
+    narrow->nFileSizeLow = wide->nFileSizeLow;
+    WideCharToMultiByte(CP_ACP, 0, wide->cFileName, -1, narrow->cFileName, MAX_PATH, NULL, NULL);
+}
 
 // The Maps sub path of an enumeration pattern, or 0. `sub` receives the
 // game-relative directory ("Maps\WarGame\PC"), `spec` the file pattern.
@@ -152,18 +177,20 @@ static MapFind *mapfind_lookup(HANDLE handle) {
     return NULL;
 }
 
-static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec) {
+static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec, int ansi) {
     MapFind *find = (MapFind*)calloc(1, sizeof(MapFind));
     if (!find) {
         return real;
     }
     find->real = real;
     find->realDrained = (real == INVALID_HANDLE_VALUE);
+    find->ansi = ansi;
     mapdir_collect(find, sub, spec);
     if (find->count == 0) {
         free(find);
         return real;   // nothing to inject: hand the real handle through
     }
+    wrg_log(L"MAPDIR-SCAN", sub, spec);
     wp::CritLock lock(g_lock);
     for (int slot = 0; slot < WRG_MAX_MAPDIR_FINDS; ++slot) {
         if (!g_finds[slot]) {
@@ -181,7 +208,7 @@ static HANDLE WINAPI myFFFW(LPCWSTR pattern, LPWIN32_FIND_DATAW data) {
         return realFFFW(pattern, data);
     }
     HANDLE real = realFFFW(pattern, data);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0);
     if (wrapped == real) {
         return real;
     }
@@ -208,7 +235,7 @@ static HANDLE WINAPI myFFFEW(LPCWSTR pattern, FINDEX_INFO_LEVELS level, LPVOID d
         return realFFFEW(pattern, level, data, op, filter, flags);
     }
     HANDLE real = realFFFEW(pattern, level, data, op, filter, flags);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0);
     if (wrapped == real) {
         return real;
     }
@@ -239,6 +266,93 @@ static BOOL WINAPI myFNFW(HANDLE handle, LPWIN32_FIND_DATAW data) {
         find->realDrained = 1;
     }
     if (mapdir_serve(find, data)) {
+        return TRUE;
+    }
+    SetLastError(ERROR_NO_MORE_FILES);
+    return FALSE;
+}
+
+static HANDLE WINAPI myFFFA(LPCSTR pattern, LPWIN32_FIND_DATAA data) {
+    wchar_t widePattern[MAX_PATH];
+    if (!pattern || !MultiByteToWideChar(CP_ACP, 0, pattern, -1, widePattern, MAX_PATH)) {
+        return realFFFA(pattern, data);
+    }
+    wchar_t sub[MAX_PATH], spec[MAX_PATH];
+    if (!mapdir_pattern_split(widePattern, sub, spec)) {
+        return realFFFA(pattern, data);
+    }
+    HANDLE real = realFFFA(pattern, data);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI);
+    if (wrapped == real) {
+        return real;
+    }
+    MapFind *find = (MapFind*)wrapped;
+    if (find->realDrained) {
+        WIN32_FIND_DATAW wide;
+        if (!mapdir_serve(find, &wide)) {
+            wp::CritLock lock(g_lock);
+            for (int slot = 0; slot < WRG_MAX_MAPDIR_FINDS; ++slot) {
+                if (g_finds[slot] == find) {
+                    g_finds[slot] = NULL;
+                }
+            }
+            free(find);
+            SetLastError(ERROR_FILE_NOT_FOUND);
+            return INVALID_HANDLE_VALUE;
+        }
+        find_data_narrow(&wide, data);
+    }
+    return wrapped;
+}
+
+static HANDLE WINAPI myFFFEA(LPCSTR pattern, FINDEX_INFO_LEVELS level, LPVOID data,
+                             FINDEX_SEARCH_OPS op, LPVOID filter, DWORD flags) {
+    wchar_t widePattern[MAX_PATH];
+    if (!pattern || !MultiByteToWideChar(CP_ACP, 0, pattern, -1, widePattern, MAX_PATH)) {
+        return realFFFEA(pattern, level, data, op, filter, flags);
+    }
+    wchar_t sub[MAX_PATH], spec[MAX_PATH];
+    if (!mapdir_pattern_split(widePattern, sub, spec) || level == FindExInfoMaxInfoLevel) {
+        return realFFFEA(pattern, level, data, op, filter, flags);
+    }
+    HANDLE real = realFFFEA(pattern, level, data, op, filter, flags);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI);
+    if (wrapped == real) {
+        return real;
+    }
+    MapFind *find = (MapFind*)wrapped;
+    if (find->realDrained) {
+        WIN32_FIND_DATAW wide;
+        if (!mapdir_serve(find, &wide)) {
+            wp::CritLock lock(g_lock);
+            for (int slot = 0; slot < WRG_MAX_MAPDIR_FINDS; ++slot) {
+                if (g_finds[slot] == find) {
+                    g_finds[slot] = NULL;
+                }
+            }
+            free(find);
+            SetLastError(ERROR_FILE_NOT_FOUND);
+            return INVALID_HANDLE_VALUE;
+        }
+        find_data_narrow(&wide, (LPWIN32_FIND_DATAA)data);
+    }
+    return wrapped;
+}
+
+static BOOL WINAPI myFNFA(HANDLE handle, LPWIN32_FIND_DATAA data) {
+    MapFind *find = mapfind_lookup(handle);
+    if (!find) {
+        return realFNFA(handle, data);
+    }
+    if (!find->realDrained) {
+        if (realFNFA(find->real, data)) {
+            return TRUE;
+        }
+        find->realDrained = 1;
+    }
+    WIN32_FIND_DATAW wide;
+    if (mapdir_serve(find, &wide)) {
+        find_data_narrow(&wide, data);
         return TRUE;
     }
     SetLastError(ERROR_NO_MORE_FILES);
@@ -277,6 +391,34 @@ static DWORD WINAPI myGFAW(LPCWSTR name) {
     return attributes;
 }
 
+static DWORD WINAPI myGFAA(LPCSTR name) {
+    DWORD attributes = realGFAA(name);
+    if (attributes == INVALID_FILE_ATTRIBUTES && name) {
+        wchar_t wideName[MAX_PATH];
+        if (MultiByteToWideChar(CP_ACP, 0, name, -1, wideName, MAX_PATH) && wrg_path_wants(wideName)) {
+            wchar_t resolved[MAX_PATH];
+            if (wrg_redirect_resolve(wideName, resolved)) {
+                return realGFAW(resolved);
+            }
+        }
+    }
+    return attributes;
+}
+
+static BOOL WINAPI myGFAEA(LPCSTR name, GET_FILEEX_INFO_LEVELS level, LPVOID info) {
+    BOOL ok = realGFAEA(name, level, info);
+    if (!ok && name) {
+        wchar_t wideName[MAX_PATH];
+        if (MultiByteToWideChar(CP_ACP, 0, name, -1, wideName, MAX_PATH) && wrg_path_wants(wideName)) {
+            wchar_t resolved[MAX_PATH];
+            if (wrg_redirect_resolve(wideName, resolved)) {
+                return realGFAEW(resolved, level, info);
+            }
+        }
+    }
+    return ok;
+}
+
 static BOOL WINAPI myGFAEW(LPCWSTR name, GET_FILEEX_INFO_LEVELS level, LPVOID info) {
     BOOL ok = realGFAEW(name, level, info);
     if (!ok && wrg_path_wants(name)) {
@@ -291,15 +433,28 @@ static BOOL WINAPI myGFAEW(LPCWSTR name, GET_FILEEX_INFO_LEVELS level, LPVOID in
 void wrg_install_mapdir_hooks(void) {
     HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
     realGFAW  = (GetFileAttributesW_t)  GetProcAddress(kernel32, "GetFileAttributesW");
+    realGFAA  = (GetFileAttributesA_t)  GetProcAddress(kernel32, "GetFileAttributesA");
     realGFAEW = (GetFileAttributesExW_t)GetProcAddress(kernel32, "GetFileAttributesExW");
+    realGFAEA = (GetFileAttributesExA_t)GetProcAddress(kernel32, "GetFileAttributesExA");
     realFFFW  = (FindFirstFileW_t)      GetProcAddress(kernel32, "FindFirstFileW");
+    realFFFA  = (FindFirstFileA_t)      GetProcAddress(kernel32, "FindFirstFileA");
     realFFFEW = (FindFirstFileExW_t)    GetProcAddress(kernel32, "FindFirstFileExW");
+    realFFFEA = (FindFirstFileExA_t)    GetProcAddress(kernel32, "FindFirstFileExA");
     realFNFW  = (FindNextFileW_t)       GetProcAddress(kernel32, "FindNextFileW");
+    realFNFA  = (FindNextFileA_t)       GetProcAddress(kernel32, "FindNextFileA");
     realFC    = (FindClose_t)           GetProcAddress(kernel32, "FindClose");
+    int foundW = wrg_hook_all("FindFirstFileW",  (void*)myFFFW);
+    int foundA = wrg_hook_all("FindFirstFileA",  (void*)myFFFA);
     wrg_hook_all("GetFileAttributesW",   (void*)myGFAW);
+    wrg_hook_all("GetFileAttributesA",   (void*)myGFAA);
     wrg_hook_all("GetFileAttributesExW", (void*)myGFAEW);
-    wrg_hook_all("FindFirstFileW",       (void*)myFFFW);
+    wrg_hook_all("GetFileAttributesExA", (void*)myGFAEA);
     wrg_hook_all("FindFirstFileExW",     (void*)myFFFEW);
+    wrg_hook_all("FindFirstFileExA",     (void*)myFFFEA);
     wrg_hook_all("FindNextFileW",        (void*)myFNFW);
+    wrg_hook_all("FindNextFileA",        (void*)myFNFA);
     wrg_hook_all("FindClose",            (void*)myFC);
+    wchar_t info[64];
+    _snwprintf(info, 64, L"FFF W=%d A=%d", foundW, foundA);
+    wrg_log(L"MAPDIR-HOOKS", info, NULL);
 }
