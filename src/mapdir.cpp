@@ -81,11 +81,17 @@ static int mapdir_pattern_split(const wchar_t *pattern, wchar_t *sub, wchar_t *s
         return 0;
     }
     *lastSlash = 0;
+    // Absolute patterns carry "...\Maps\..."; a relative pattern (the game's
+    // working directory IS the install dir) starts with "Maps\" outright.
     const wchar_t *marker = wcsstr(normalized, L"\\Maps\\");
-    if (!marker) {
+    if (marker) {
+        marker += 1;
+    } else if (_wcsnicmp(normalized, L"Maps\\", 5) == 0) {
+        marker = normalized;
+    } else {
         return 0;
     }
-    wp::copy_truncated(sub, marker + 1, MAX_PATH);
+    wp::copy_truncated(sub, marker, MAX_PATH);
     wp::copy_truncated(spec, lastSlash + 1, MAX_PATH);
     return 1;
 }
