@@ -22,6 +22,7 @@ typedef struct {
     int     ansi;                              // WRG_FIND_ANSI when opened via the A surface
     int     next;                              // cursor into names
     int     count;
+    int     directories;                       // entries are dirs, stat'd from `dir`
     wchar_t names[WRG_MAX_INJECT][MAX_PATH];   // injected file names (no dir)
     wchar_t dir[MAX_PATH];                     // mods\<mod> dir each name lives in
     wchar_t sub[MAX_PATH];                     // the Maps sub path, for stat
@@ -56,6 +57,10 @@ static FindClose_t            realFC;
 // A find handle opened through the ANSI surface serves ANSI records.
 #define WRG_FIND_ANSI 1
 
+#define WRG_INJECT_MAP       0   // mod-provided map packs
+#define WRG_INJECT_TIER_DIR  1   // tier directories, into their parent's listing
+#define WRG_INJECT_TIER_PACK 2   // the packs a tier itself holds
+
 static void find_data_narrow(const WIN32_FIND_DATAW *wide, LPWIN32_FIND_DATAA narrow) {
     memset(narrow, 0, sizeof(*narrow));
     narrow->dwFileAttributes = wide->dwFileAttributes;
@@ -67,9 +72,19 @@ static void find_data_narrow(const WIN32_FIND_DATAW *wide, LPWIN32_FIND_DATAA na
     WideCharToMultiByte(CP_ACP, 0, wide->cFileName, -1, narrow->cFileName, MAX_PATH, NULL, NULL);
 }
 
-// The Maps sub path of an enumeration pattern, or 0. `sub` receives the
-// game-relative directory ("Maps\WarGame\PC"), `spec` the file pattern.
-static int mapdir_pattern_split(const wchar_t *pattern, wchar_t *sub, wchar_t *spec) {
+static const wchar_t *find_insensitive(const wchar_t *haystack, const wchar_t *needle) {
+    size_t needleLen = wcslen(needle);
+    for (const wchar_t *cursor = haystack; *cursor; ++cursor) {
+        if (_wcsnicmp(cursor, needle, needleLen) == 0) {
+            return cursor;
+        }
+    }
+    return NULL;
+}
+
+// The game-relative sub path of an enumeration we serve, or 0.
+static int mapdir_pattern_split(const wchar_t *pattern, wchar_t *sub, wchar_t *spec,
+                                int *directories) {
     if (!pattern) {
         return 0;
     }
@@ -83,17 +98,110 @@ static int mapdir_pattern_split(const wchar_t *pattern, wchar_t *sub, wchar_t *s
     *lastSlash = 0;
     // Absolute patterns carry "...\Maps\..."; a relative pattern (the game's
     // working directory IS the install dir) starts with "Maps\" outright.
-    const wchar_t *marker = wcsstr(normalized, L"\\Maps\\");
+    const wchar_t *marker = find_insensitive(normalized, L"\\Maps\\");
     if (marker) {
         marker += 1;
     } else if (_wcsnicmp(normalized, L"Maps\\", 5) == 0) {
         marker = normalized;
+    }
+    if (marker) {
+        *directories = 0;
+        wp::copy_truncated(sub, marker, MAX_PATH);
+        wp::copy_truncated(spec, lastSlash + 1, MAX_PATH);
+        return 1;
+    }
+    marker = find_insensitive(normalized, L"\\Data\\");
+    if (marker) {
+        marker += 1;
+    } else if (_wcsnicmp(normalized, L"Data\\", 5) == 0) {
+        marker = normalized;
     } else {
         return 0;
     }
+    *directories = 1;
     wp::copy_truncated(sub, marker, MAX_PATH);
     wp::copy_truncated(spec, lastSlash + 1, MAX_PATH);
     return 1;
+}
+
+static const wchar_t *mapdir_parent_revision(const wchar_t *sub) {
+    const wchar_t *lastSlash = wcsrchr(sub, L'\\');
+    return lastSlash ? lastSlash + 1 : sub;
+}
+
+static int mapdir_tier_directory(const wchar_t *sub, wchar_t *out) {
+    const wchar_t *lastSlash = wcsrchr(sub, L'\\');
+    if (!lastSlash) {
+        return 0;
+    }
+    const wchar_t *leaf = lastSlash + 1;
+    wchar_t head[MAX_PATH];
+    wp::copy_truncated(head, sub, MAX_PATH);
+    head[lastSlash - sub] = 0;
+    const wchar_t *parentSlash = wcsrchr(head, L'\\');
+    const wchar_t *parent = parentSlash ? parentSlash + 1 : head;
+    if (wrg_tier_dir_of(parent, leaf, out)) {
+        return 1;
+    }
+
+    return wrg_tier_dir_by_id(leaf, out);
+}
+
+// Fill `find` with the packs a declared tier holds that the game tree lacks.
+static void mapdir_collect_tier_packs(MapFind *find, const wchar_t *tierDir,
+                                      const wchar_t *sub, const wchar_t *spec) {
+    find->count = 0;
+    wp::copy_truncated(find->sub, sub, MAX_PATH);
+    wp::copy_truncated(find->dir, tierDir, MAX_PATH);
+    wchar_t searchPattern[MAX_PATH];
+    int written = _snwprintf(searchPattern, MAX_PATH, L"%ls\\*", tierDir);
+    if (written < 0 || written >= MAX_PATH) {
+        return;
+    }
+    WIN32_FIND_DATAW data;
+    HANDLE handle = realFFFW(searchPattern, &data);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    do {
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        if (!PathMatchSpecW(data.cFileName, spec)) {
+            continue;
+        }
+        wp::copy_truncated(find->names[find->count], data.cFileName, MAX_PATH);
+        find->count++;
+    } while (find->count < WRG_MAX_INJECT && realFNFW(handle, &data));
+    realFC(handle);
+}
+
+static void mapdir_collect_tiers(MapFind *find, const wchar_t *sub, const wchar_t *spec) {
+    find->count = 0;
+    wp::copy_truncated(find->sub, sub, MAX_PATH);
+    const wchar_t *parent = mapdir_parent_revision(sub);
+    const wchar_t *children[WRG_MAX_INJECT];
+    int childCount = wrg_tier_children_of(parent, children, WRG_MAX_INJECT);
+
+    if (childCount == 0 && _wcsicmp(parent, L"PC") == 0) {
+        childCount = wrg_tier_all(children, WRG_MAX_INJECT);
+    }
+    for (int childIndex = 0; childIndex < childCount && find->count < WRG_MAX_INJECT; ++childIndex) {
+        if (!PathMatchSpecW(children[childIndex], spec)) {
+            continue;
+        }
+        wchar_t gamePath[MAX_PATH];
+        int written = _snwprintf(gamePath, MAX_PATH, L"%ls\\%ls\\%ls",
+                                 g_gamedir, sub, children[childIndex]);
+        if (written < 0 || written >= MAX_PATH) {
+            continue;
+        }
+        if (realGFAW(gamePath) != INVALID_FILE_ATTRIBUTES) {
+            continue;   // the game carries this revision; the real listing serves it
+        }
+        wp::copy_truncated(find->names[find->count], children[childIndex], MAX_PATH);
+        find->count++;
+    }
 }
 
 // Fill `find` with every mod-provided name under `sub` matching `spec`
@@ -152,7 +260,18 @@ static int mapdir_serve(MapFind *find, LPWIN32_FIND_DATAW out) {
     while (find->next < find->count) {
         const wchar_t *name = find->names[find->next++];
         wchar_t fullPath[MAX_PATH];
-        int written = _snwprintf(fullPath, MAX_PATH, L"%ls\\%ls\\%ls", find->dir, find->sub, name);
+        int written;
+        if (find->directories == WRG_INJECT_TIER_DIR) {
+            const wchar_t *parent = mapdir_parent_revision(find->sub);
+            if (!wrg_tier_dir_of(parent, name, fullPath)) {
+                continue;
+            }
+            written = 0;
+        } else if (find->directories == WRG_INJECT_TIER_PACK) {
+            written = _snwprintf(fullPath, MAX_PATH, L"%ls\\%ls", find->dir, name);
+        } else {
+            written = _snwprintf(fullPath, MAX_PATH, L"%ls\\%ls\\%ls", find->dir, find->sub, name);
+        }
         if (written < 0 || written >= MAX_PATH) {
             continue;
         }
@@ -183,7 +302,8 @@ static MapFind *mapfind_lookup(HANDLE handle) {
     return NULL;
 }
 
-static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec, int ansi) {
+static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec, int ansi,
+                           int directories) {
     MapFind *find = (MapFind*)calloc(1, sizeof(MapFind));
     if (!find) {
         return real;
@@ -191,12 +311,27 @@ static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec,
     find->real = real;
     find->realDrained = (real == INVALID_HANDLE_VALUE);
     find->ansi = ansi;
-    mapdir_collect(find, sub, spec);
+    find->directories = directories;
+    if (directories) {
+        wchar_t tierDir[MAX_PATH];
+        if (mapdir_tier_directory(sub, tierDir)) {
+            find->directories = WRG_INJECT_TIER_PACK;
+            mapdir_collect_tier_packs(find, tierDir, sub, spec);
+        } else {
+            find->directories = WRG_INJECT_TIER_DIR;
+            mapdir_collect_tiers(find, sub, spec);
+        }
+    } else {
+        mapdir_collect(find, sub, spec);
+    }
     if (find->count == 0) {
+        if (directories) {
+            wrg_log(L"TIER-SCAN-EMPTY", sub, spec);
+        }
         free(find);
         return real;   // nothing to inject: hand the real handle through
     }
-    wrg_log(L"MAPDIR-SCAN", sub, spec);
+    wrg_log(directories ? L"TIER-SCAN" : L"MAPDIR-SCAN", sub, spec);
     wp::CritLock lock(g_lock);
     for (int slot = 0; slot < WRG_MAX_MAPDIR_FINDS; ++slot) {
         if (!g_finds[slot]) {
@@ -210,11 +345,12 @@ static HANDLE mapfind_wrap(HANDLE real, const wchar_t *sub, const wchar_t *spec,
 
 static HANDLE WINAPI myFFFW(LPCWSTR pattern, LPWIN32_FIND_DATAW data) {
     wchar_t sub[MAX_PATH], spec[MAX_PATH];
-    if (!mapdir_pattern_split(pattern, sub, spec)) {
+    int directories = 0;
+    if (!mapdir_pattern_split(pattern, sub, spec, &directories)) {
         return realFFFW(pattern, data);
     }
     HANDLE real = realFFFW(pattern, data);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0, directories);
     if (wrapped == real) {
         return real;
     }
@@ -237,11 +373,12 @@ static HANDLE WINAPI myFFFW(LPCWSTR pattern, LPWIN32_FIND_DATAW data) {
 static HANDLE WINAPI myFFFEW(LPCWSTR pattern, FINDEX_INFO_LEVELS level, LPVOID data,
                              FINDEX_SEARCH_OPS op, LPVOID filter, DWORD flags) {
     wchar_t sub[MAX_PATH], spec[MAX_PATH];
-    if (!mapdir_pattern_split(pattern, sub, spec) || level == FindExInfoMaxInfoLevel) {
+    int directories = 0;
+    if (!mapdir_pattern_split(pattern, sub, spec, &directories) || level == FindExInfoMaxInfoLevel) {
         return realFFFEW(pattern, level, data, op, filter, flags);
     }
     HANDLE real = realFFFEW(pattern, level, data, op, filter, flags);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, 0, directories);
     if (wrapped == real) {
         return real;
     }
@@ -284,11 +421,12 @@ static HANDLE WINAPI myFFFA(LPCSTR pattern, LPWIN32_FIND_DATAA data) {
         return realFFFA(pattern, data);
     }
     wchar_t sub[MAX_PATH], spec[MAX_PATH];
-    if (!mapdir_pattern_split(widePattern, sub, spec)) {
+    int directories = 0;
+    if (!mapdir_pattern_split(widePattern, sub, spec, &directories)) {
         return realFFFA(pattern, data);
     }
     HANDLE real = realFFFA(pattern, data);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI, directories);
     if (wrapped == real) {
         return real;
     }
@@ -318,11 +456,12 @@ static HANDLE WINAPI myFFFEA(LPCSTR pattern, FINDEX_INFO_LEVELS level, LPVOID da
         return realFFFEA(pattern, level, data, op, filter, flags);
     }
     wchar_t sub[MAX_PATH], spec[MAX_PATH];
-    if (!mapdir_pattern_split(widePattern, sub, spec) || level == FindExInfoMaxInfoLevel) {
+    int directories = 0;
+    if (!mapdir_pattern_split(widePattern, sub, spec, &directories) || level == FindExInfoMaxInfoLevel) {
         return realFFFEA(pattern, level, data, op, filter, flags);
     }
     HANDLE real = realFFFEA(pattern, level, data, op, filter, flags);
-    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI);
+    HANDLE wrapped = mapfind_wrap(real, sub, spec, WRG_FIND_ANSI, directories);
     if (wrapped == real) {
         return real;
     }
