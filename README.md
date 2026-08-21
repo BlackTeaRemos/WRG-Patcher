@@ -5,15 +5,9 @@ mods without touching game files.
 
 ## Subsystems
 
-1. **Data mods** - declarative `patcher.toml` manifests: whole-file pack
-   redirects, byte splices into packs, per-version gates. No code, no compiler.
-2. **Code mods** - plugin DLLs linking `include/wrg_patcher.h`, driven by the
-   stable C API (`WrgApi`): redirects, splices, import hooks, memory
-   read/write, module enumeration, version queries, event dispatch.
-   **Disabled in release builds** (compiled out via `WRG_RELEASE`); available
-   only in dev builds.
-3. **Live control** - opt-in named-pipe IPC (`\\.\pipe\wrd_patcher`) for
-   runtime mount/reload via external tools.
+1. **Data mods** - declarative `patcher.toml` manifests: whole-file pack redirects, byte splices into packs, per-version gates. No code, no compiler.
+2. **Code mods** - plugin DLLs linking `include/wrg_patcher.h`, driven by the stable C API (`WrgApi`): redirects, splices, import hooks, memory read/write, module enumeration, version queries, event dispatch. Disabled in release builds.
+3. **Live control** - opt-in named-pipe IPC (`\\.\pipe\wrd_patcher`) for runtime mount/reload via external tools.
 
 ## Load mechanism
 
@@ -24,14 +18,10 @@ The game imports `version.dll` from its own folder before `main()`. This proxy.
 Grab `version.dll` and `install.bat` from the
 [latest release](https://github.com/BlackTeaRemos/WRG-Patcher/releases/latest).
 
-1. Copy both files into your Wargame: Red Dragon folder (the one with
-   `WarGame3.exe`).
+1. Copy both files into your Wargame: Red Dragon folder
 2. Double-click `install.bat`.
 
-The script finds the game (the folder it sits in, or via the Steam registry
-keys), copies the system `version.dll` to `version_real.dll` so the proxy can
-forward the real version exports, and creates the `mods\` folder. Launch the
-game normally afterward.
+The script finds the game (the folder it sits in, or via the Steam registry keys), copies the system `version.dll` to `version_real.dll` so the proxy can forward the real version exports, and creates the `mods\` folder. Launch the game normally afterward.
 
 If the script cannot locate the game automatically, pass the folder:
 
@@ -39,15 +29,12 @@ If the script cannot locate the game automatically, pass the folder:
 install.bat "D:\Games\Wargame Red Dragon"
 ```
 
-To uninstall, delete `version.dll` from the game folder (keep or remove
-`version_real.dll` - the game runs fine with it present).
+To uninstall, delete `version.dll` from the game folder
 
 ## Installing mods
 
 1. Put each mod in its own subfolder under `mods\`: `mods\<ModName>\`.
-2. Control which mods load, and in what order, with `mods\load_order.txt` -
-   one mod folder name per line, `#` for comments. If the file is absent the
-   patcher auto-creates it seeded with the first mod folder it finds.
+2. Control which mods load, and in what order, with `mods\load_order.txt`, one mod folder name per line, `#` for comments
 
 To build mods, use the
 [WGRD Mod Toolkit](https://github.com/BlackTeaRemos/WGRD-Mod-Toolkit).
@@ -66,9 +53,7 @@ Wargame Red Dragon\
 
 ### Manifest format (`patcher.toml`)
 
-A manifest is a sequence of `[[redirect]]` and `[[overlay]]` blocks. An optional
-top-level `requires_version` gates the whole file against the detected game
-build; a mismatch skips every block.
+A manifest is a sequence of `[[redirect]]` and `[[overlay]]` blocks. An optional top-level `requires_version` gates the whole file against the detected game build.
 
 ```toml
 requires_version = "..."          # optional; skip all blocks on mismatch
@@ -90,11 +75,6 @@ offset = 4096                     # absolute byte offset in the pack
 inner  = "some/inner/asset.tgv"   # host resolves current offset via edat trie
 ```
 
-- **REDIRECT** - path swap in `CreateFileW/A`. Whole-file.
-- **OVERLAY** - byte splice in `ReadFile`/`NtReadFile`. Location is either an
-  absolute `offset` or an `inner` asset path resolved through the edat trie at
-  runtime (survives repacks).
-
 ## Building
 
 x86 only. Requires Visual Studio 2026 with C++26 (`/std:c++latest`).
@@ -107,13 +87,9 @@ set GAME=<path>\Wargame Red Dragon
 stage.bat
 ```
 
-`stage.bat` compiles the 11 core translation units into `version.dll` (a
-release build with code-mod plugin loading compiled out) and copies it into
-`%GAME%`. For a dev build with plugin loading enabled, use `build_msvc.ps1`
-(sets `VCVARS`, no `WRG_RELEASE`, no game copy).
+`stage.bat` compiles the 11 core translation units into `version.dll` and copies it into `%GAME%`. For a dev build with plugin loading enabled, use `build_msvc.ps1`.
 
-Install the built `version.dll` next to `WarGame3.exe` alongside
-`version_real.dll` (a copy of the system `System32\version.dll`).
+Install the built `version.dll` next to `WarGame3.exe` alongside `version_real.dll` (a copy of the system `System32\version.dll`).
 
 ## License
 
