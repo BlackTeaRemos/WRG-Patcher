@@ -87,7 +87,7 @@ set GAME=<path>\Wargame Red Dragon
 stage.bat
 ```
 
-`stage.bat` compiles the 11 core translation units into `version.dll` and copies it into `%GAME%`. For a dev build with plugin loading enabled, use `build_msvc.ps1`.
+`stage.bat` compiles the core translation units into `version.dll` and copies it into `%GAME%`. For a dev build with plugin loading enabled, use `build_msvc.ps1`.
 
 Install the built `version.dll` next to `WarGame3.exe` alongside `version_real.dll` (a copy of the system `System32\version.dll`).
 
