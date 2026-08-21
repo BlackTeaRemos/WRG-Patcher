@@ -67,6 +67,10 @@ int wrg_redirect_resolve(const wchar_t *name, wchar_t *out) {
         return 1;
     }
 
+    if (wrg_tier_resolve_open(name, out)) {
+        return 1;
+    }
+
     const wchar_t *starts[64]; int segmentCount = 0;
     starts[segmentCount++] = name;
     for (const wchar_t *cursor = name; *cursor && segmentCount < 64; ++cursor) {
