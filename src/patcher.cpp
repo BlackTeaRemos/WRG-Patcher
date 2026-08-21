@@ -35,12 +35,12 @@ static void add_mod(const wchar_t *modName) {
     g_nmods++;
 }
 
-static int load_order_from_file(void) {
+static void load_order_from_file(void) {
     wchar_t loadOrderPath[MAX_PATH];
     _snwprintf(loadOrderPath, MAX_PATH, L"%ls\\load_order.txt", g_modsroot);
     char *fileBytes = wp::read_file_text(loadOrderPath);
     if (!fileBytes) {
-        return 0;
+        return;
     }
     char *textStart = fileBytes;
     if (strlen(fileBytes) >= 3 && (unsigned char)textStart[0]==0xEF && (unsigned char)textStart[1]==0xBB && (unsigned char)textStart[2]==0xBF) {
@@ -50,7 +50,7 @@ static int load_order_from_file(void) {
     wchar_t *wideText = (wchar_t*)malloc((size_t)wideCharCount * sizeof(wchar_t));
     if (!wideText) {
         free(fileBytes);
-        return 0;
+        return;
     }
     MultiByteToWideChar(CP_UTF8, 0, textStart, -1, wideText, wideCharCount);
     free(fileBytes);
@@ -77,40 +77,6 @@ static int load_order_from_file(void) {
         }
     }
     free(wideText);
-    return g_nmods;
-}
-
-static void create_load_order_with_first_mod(void) {
-    wchar_t searchPattern[MAX_PATH];
-    _snwprintf(searchPattern, MAX_PATH, L"%ls\\*", g_modsroot);
-    WIN32_FIND_DATAW findData;
-    HANDLE findHandle = FindFirstFileW(searchPattern, &findData);
-    if (findHandle == INVALID_HANDLE_VALUE) {
-        return;
-    }
-    wchar_t firstModName[128] = {0};
-    do {
-        if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-            wcscmp(findData.cFileName, L".") && wcscmp(findData.cFileName, L"..")) {
-            wcsncpy(firstModName, findData.cFileName, 127);
-            firstModName[127] = 0;
-            break;
-        }
-    } while (FindNextFileW(findHandle, &findData));
-    FindClose(findHandle);
-    if (!firstModName[0]) {
-        return;
-    }
-
-    wchar_t loadOrderPath[MAX_PATH];
-    _snwprintf(loadOrderPath, MAX_PATH, L"%ls\\load_order.txt", g_modsroot);
-    FILE *file = _wfopen(loadOrderPath, L"w, ccs=UTF-8");
-    if (file) {
-        fputws(firstModName, file);
-        fputws(L"\n", file);
-        fclose(file);
-    }
-    add_mod(firstModName);
 }
 
 static volatile LONG g_game_loaded = 0;
@@ -215,9 +181,7 @@ static void init(void) {
         fclose(logFile);
     }
 
-    if (load_order_from_file() == 0) {
-        create_load_order_with_first_mod();
-    }
+    load_order_from_file();
 
     HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
     realCFW         = reinterpret_cast<CreateFileW_t>(GetProcAddress(kernel32, "CreateFileW"));
