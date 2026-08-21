@@ -15,6 +15,7 @@ extern "C" {
 #define WRG_MAX_PATCH   512
 #define WRG_MAX_TRACK   128
 #define WRG_MAX_REDIR   256
+#define WRG_MAX_TIERS   32
 #define WRG_MAX_PLUGINS 64
 #define WRG_MAX_MISS_LOG 400
 
@@ -85,11 +86,22 @@ const char *wrg_version_tag(void);             // stable id string
 int         wrg_version_matches(const char *required);  // manifest gate
 
 void        wrg_version_anchor_init(void);     // lift engine build-number ceiling (opt-in)
+void         wrg_revision_read_base(void);     // read the stamp, change nothing
+void         wrg_revision_init(void);
+unsigned int wrg_revision_declared(void);      // 0 when unpatched
+unsigned int wrg_revision_base(void);          // the revision the exe states
 
 void wrg_ipc_start(void);   // spawn named-pipe control thread
 
 // mod-provided map packs: attribute probes + Maps dir enumeration injection
 void wrg_install_mapdir_hooks(void);
+void wrg_tier_resolve_all(unsigned int baseRevision);
+int  wrg_tier_count(void);
+int  wrg_tier_children_of(const wchar_t *parent, const wchar_t **out, int capacity);
+int  wrg_tier_dir_of(const wchar_t *parent, const wchar_t *id, wchar_t *out);
+int  wrg_tier_dir_by_id(const wchar_t *id, wchar_t *out);
+int  wrg_tier_resolve_open(const wchar_t *name, wchar_t *out);
+int  wrg_tier_all(const wchar_t **out, int capacity);
 
 #ifdef __cplusplus
 }
