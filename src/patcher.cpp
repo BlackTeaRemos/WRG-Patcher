@@ -227,6 +227,9 @@ static void init(void) {
 
     wrg_version_init();
     wrg_version_anchor_init();
+    wrg_revision_read_base();
+    wrg_tier_resolve_all(wrg_revision_base());
+    wrg_revision_init();
 
     wrg_overlay_load_from_mods();   // legacy .ovl
     wrg_manifest_load_all();        // declarative manifests
