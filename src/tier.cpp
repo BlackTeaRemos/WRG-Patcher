@@ -83,6 +83,42 @@ static int mod_owns_tier(const wchar_t *modDir) {
     return 0;
 }
 
+unsigned int wrg_mods_pin_revision(void) {
+    static const wchar_t *MANIFEST_NAMES[] = { L"mod.json", L"wrd_mod.json" };
+    for (int modIndex = 0; modIndex < g_nmods; ++modIndex) {
+        for (int nameIndex = 0; nameIndex < 2; ++nameIndex) {
+            wchar_t manifestPath[MAX_PATH];
+            int written = _snwprintf(manifestPath, MAX_PATH, L"%ls\\%ls\\%ls",
+                                     g_modsroot, g_mods[modIndex], MANIFEST_NAMES[nameIndex]);
+            if (written < 0 || written >= MAX_PATH) {
+                continue;
+            }
+            char *text = wp::read_file_text(manifestPath);
+            if (!text) {
+                continue;
+            }
+            unsigned int pinned = 0;
+            const char *found = strstr(text, "\"pin_revision\"");
+            if (found) {
+                const char *cursor = found + strlen("\"pin_revision\"");
+                while (*cursor == ' ' || *cursor == ':' || *cursor == '\t' || *cursor == '"') {
+                    cursor++;
+                }
+                while (*cursor >= '0' && *cursor <= '9') {
+                    pinned = pinned * 10 + (unsigned int)(*cursor - '0');
+                    cursor++;
+                }
+            }
+            free(text);
+            if (pinned != 0) {
+                wrg_log(L"REVISION-PIN-MOD", g_mods[modIndex], NULL);
+                return pinned;
+            }
+        }
+    }
+    return 0;
+}
+
 void wrg_tier_resolve_all(unsigned int baseRevision) {
     wp::CritLock lock(g_lock);
     g_ntier = 0;

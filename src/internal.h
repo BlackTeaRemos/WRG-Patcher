@@ -97,6 +97,7 @@ void wrg_ipc_start(void);   // spawn named-pipe control thread
 void wrg_install_mapdir_hooks(void);
 void wrg_tier_resolve_all(unsigned int baseRevision);
 int  wrg_tier_count(void);
+unsigned int wrg_mods_pin_revision(void);
 int  wrg_tier_children_of(const wchar_t *parent, const wchar_t **out, int capacity);
 int  wrg_tier_dir_of(const wchar_t *parent, const wchar_t *id, wchar_t *out);
 int  wrg_tier_dir_by_id(const wchar_t *id, wchar_t *out);

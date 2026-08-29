@@ -89,12 +89,16 @@ void wrg_revision_init(void) {
         g_baseRevision = stamped_revision(field);
     }
 
+    unsigned int pinned = wrg_mods_pin_revision();
+
     int tierCount = wrg_tier_count();
-    if (tierCount <= 0) {
-        return;   // no mod owns a tier
+    if (pinned == 0 && tierCount <= 0) {
+        return;
     }
 
-    unsigned int top = g_baseRevision + (unsigned int)tierCount;
+    unsigned int top = pinned != 0
+        ? pinned
+        : g_baseRevision + (unsigned int)tierCount;
     char replacement[SVN_DIGITS + 1];
     _snprintf(replacement, sizeof(replacement), "%010u", top);
     if (strlen(replacement) != SVN_DIGITS) {
@@ -111,8 +115,13 @@ void wrg_revision_init(void) {
     g_revisionPatched = 1;
     g_revision = top;
     wchar_t detail[128];
-    _snwprintf(detail, 128, L"base=%u tiers=%d -> %u", g_baseRevision, tierCount, top);
-    wrg_log(L"REVISION-BUMP", g_modsroot, detail);
+    if (pinned != 0) {
+        _snwprintf(detail, 128, L"base=%u pinned -> %u", g_baseRevision, top);
+        wrg_log(L"REVISION-PIN", g_modsroot, detail);
+    } else {
+        _snwprintf(detail, 128, L"base=%u tiers=%d -> %u", g_baseRevision, tierCount, top);
+        wrg_log(L"REVISION-BUMP", g_modsroot, detail);
+    }
 }
 
 unsigned int wrg_revision_declared(void) {
