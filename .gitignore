@@ -15,5 +15,6 @@ version_baseline.*
 
 /deprecated/
 
-/src/native/
-/src/patches/
+src/**/native/
+src/patches/
+plugins/

@@ -86,6 +86,7 @@ const char *wrg_version_tag(void);             // stable id string
 int         wrg_version_matches(const char *required);  // manifest gate
 
 void        wrg_version_anchor_init(void);     // lift engine build-number ceiling (opt-in)
+
 void         wrg_revision_read_base(void);     // read the stamp, change nothing
 void         wrg_revision_init(void);
 unsigned int wrg_revision_declared(void);      // 0 when unpatched

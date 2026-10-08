@@ -1,5 +1,8 @@
 #include "internal.h"
 #include "wp_util.h"
+#include "IsModFolderName.h"
+#include "nations/NationFeature.h"
+#include "nations/NationFeatureExport.h"
 #include <format>
 #include <string>
 
@@ -27,8 +30,13 @@ void wrg_log(const wchar_t *tag, const wchar_t *subjectPath, const wchar_t *targ
 }
 
 static void add_mod(const wchar_t *modName) {
-    if (g_nmods >= WRG_MAX_MODS || !modName || !modName[0]) {
+    if (g_nmods >= WRG_MAX_MODS || !IsModFolderName(modName)) {
         return;
+    }
+    for (int modIndex = 0; modIndex < g_nmods; ++modIndex) {
+        if (_wcsicmp(g_mods[modIndex], modName) == 0) {
+            return;
+        }
     }
     wcsncpy(g_mods[g_nmods], modName, 127);
     g_mods[g_nmods][127] = 0;
@@ -182,6 +190,10 @@ static void init(void) {
     }
 
     load_order_from_file();
+    if (g_nmods == 0) {
+        wrg_log(L"BYPASS", g_modsroot, L"no enabled mods; hooks and plugins disabled");
+        return;
+    }
 
     HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
     realCFW         = reinterpret_cast<CreateFileW_t>(GetProcAddress(kernel32, "CreateFileW"));
@@ -190,6 +202,9 @@ static void init(void) {
     realReadFile    = reinterpret_cast<ReadFile_t>(GetProcAddress(kernel32, "ReadFile"));
 
     wrg_version_init();
+    if (!NationFeature::Initialize()) {
+        return;
+    }
     wrg_version_anchor_init();
     wrg_revision_read_base();
     wrg_tier_resolve_all(wrg_revision_base());

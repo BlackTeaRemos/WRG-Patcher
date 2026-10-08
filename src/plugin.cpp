@@ -1,5 +1,6 @@
 #include "internal.h"
 #include "wp_util.h"
+#include "IsModFolderName.h"
 #include <stdarg.h>
 #include <span>
 
@@ -92,17 +93,52 @@ const WrgApi *wrg_api(void) {
 // ---- loader ---------------------------------------------------------------
 #ifndef WRG_RELEASE
 static void load_dir(const wchar_t *mod) {
+    if (!IsModFolderName(mod)) {
+        return;
+    }
+    bool enabled = false;
+    for (int modIndex = 0; modIndex < g_nmods; ++modIndex) {
+        if (_wcsicmp(g_mods[modIndex], mod) == 0) {
+            enabled = true;
+            break;
+        }
+    }
+    if (!enabled) {
+        return;
+    }
+    wchar_t directory[MAX_PATH];
+    int directoryLength = _snwprintf(directory, MAX_PATH, L"%ls\\%ls", g_modsroot, mod);
+    if (directoryLength < 0 || directoryLength >= MAX_PATH) {
+        return;
+    }
+    DWORD directoryAttributes = GetFileAttributesW(directory);
+    if (directoryAttributes == INVALID_FILE_ATTRIBUTES
+        || !(directoryAttributes & FILE_ATTRIBUTE_DIRECTORY)
+        || (directoryAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        return;
+    }
     wchar_t pat[MAX_PATH];
-    _snwprintf(pat, MAX_PATH, L"%ls\\%ls\\*.dll", g_modsroot, mod);
+    int patternLength = _snwprintf(pat, MAX_PATH, L"%ls\\*.dll", directory);
+    if (patternLength < 0 || patternLength >= MAX_PATH) {
+        return;
+    }
     WIN32_FIND_DATAW findData;
     HANDLE findHandle = FindFirstFileW(pat, &findData);
     if (findHandle == INVALID_HANDLE_VALUE) {
         return;
     }
     do {
+        if (findData.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+            continue;
+        }
         wchar_t path[MAX_PATH];
-        _snwprintf(path, MAX_PATH, L"%ls\\%ls\\%ls", g_modsroot, mod, findData.cFileName);
-        HMODULE pluginModule = LoadLibraryW(path);
+        int pathLength = _snwprintf(path, MAX_PATH, L"%ls\\%ls", directory, findData.cFileName);
+        if (pathLength < 0 || pathLength >= MAX_PATH) {
+            continue;
+        }
+        wrg_log(L"PLUGIN-LOAD-ENABLED", path, mod);
+        HMODULE pluginModule = LoadLibraryExW(path, NULL,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
         if (!pluginModule) {
             wrg_log(L"PLUGIN-FAIL", path, NULL);
             continue;
